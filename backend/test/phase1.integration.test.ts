@@ -10,8 +10,7 @@ vi.mock("../src/modules/generation/queue.js", () => ({
 }));
 
 const { createApp } = await import("../src/app.js");
-const { closeDatabase, db, pingDatabase } = await import("../src/db/client.js");
-const { users } = await import("../src/db/schema.js");
+const { closeDatabase, pingDatabase, query } = await import("../src/db/client.js");
 const { sha256Hex } = await import("../src/lib/crypto.js");
 const { __resetAuthCache } = await import("../src/modules/auth/auth.service.js");
 const { runMigrations } = await import("../src/db/migrate.js");
@@ -45,8 +44,8 @@ describe.skipIf(!dbAvailable)("Phase 1 API (integration)", () => {
 
   beforeAll(async () => {
     await runMigrations();
-    await db.delete(users);
-    await db.insert(users).values({ tokenHash: sha256Hex(TOKEN) });
+    await query("DELETE FROM users");
+    await query("INSERT INTO users (token_hash) VALUES ($1)", [sha256Hex(TOKEN)]);
     __resetAuthCache();
 
     vi.mocked(extractStructuredJd).mockResolvedValue(FIXED_JD);
@@ -59,7 +58,7 @@ describe.skipIf(!dbAvailable)("Phase 1 API (integration)", () => {
   });
 
   afterAll(async () => {
-    await db.delete(users);
+    await query("DELETE FROM users");
     await closeDatabase();
   });
 

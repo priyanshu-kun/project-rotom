@@ -1,8 +1,7 @@
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
-import { closeDatabase, db, pingDatabase } from "../src/db/client.js";
-import { profiles, users } from "../src/db/schema.js";
+import { closeDatabase, pingDatabase, query } from "../src/db/client.js";
 import { sha256Hex } from "../src/lib/crypto.js";
 import { __resetAuthCache } from "../src/modules/auth/auth.service.js";
 import { runMigrations } from "../src/db/migrate.js";
@@ -39,14 +38,14 @@ describe.skipIf(!dbAvailable)("Profile API (integration)", () => {
   beforeAll(async () => {
     await runMigrations();
     // Reset to a single user with a known token.
-    await db.delete(users);
-    await db.insert(users).values({ tokenHash: sha256Hex(TOKEN) });
+    await query("DELETE FROM users");
+    await query("INSERT INTO users (token_hash) VALUES ($1)", [sha256Hex(TOKEN)]);
     __resetAuthCache();
   });
 
   afterAll(async () => {
     // Leave the isolated test DB clean for the next run.
-    await db.delete(users);
+    await query("DELETE FROM users");
     await closeDatabase();
   });
 
@@ -71,8 +70,10 @@ describe.skipIf(!dbAvailable)("Profile API (integration)", () => {
   });
 
   it("persists personal PII encrypted at rest", async () => {
-    const rows = await db.select().from(profiles).limit(1);
-    const personal = rows[0]!.personal as Record<string, unknown>;
+    const rows = await query<{ personal: Record<string, unknown> }>(
+      "SELECT personal FROM profiles LIMIT 1",
+    );
+    const personal = rows[0]!.personal;
     // Stored value is an encryption envelope, not plaintext.
     expect(personal).toHaveProperty("v");
     expect(personal).toHaveProperty("iv");

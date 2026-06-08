@@ -90,7 +90,7 @@ premature normalization for a single-user product.
 | Runtime/lang | Node.js ≥20, TypeScript (strict, ESM, NodeNext) | PRD-specified |
 | HTTP | Express 4 + `helmet` | Ubiquitous, reviewable; async errors wrapped via `asyncHandler` |
 | Validation | Zod at every boundary | Single source for the data contract; inferred TS types |
-| DB access | Drizzle ORM + drizzle-kit over `node-postgres` | Typed schema = SQL source of truth; real migrations |
+| DB access | Raw parameterized SQL over `node-postgres` (no ORM) | Explicit hand-written SQL via `query`/`withTransaction`; numbered `migrations/*.sql` applied by a custom tracked runner |
 | Cache/queue | `ioredis` (BullMQ deferred to Phase 1) | Wired + health-checked now |
 | Logging | `pino` with PII/secret redaction | Structured logs; never leaks personal data or tokens |
 | Tests | Vitest + supertest | Unit + DB-backed integration |

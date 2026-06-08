@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { applicationStatus, artifactType } from "../../db/schema.js";
+import { APPLICATION_STATUSES, ARTIFACT_TYPES } from "../../db/schema.js";
 
 /** Create from a URL (server fetches + extracts) or pasted JD text (JD-1/JD-4). */
 export const createApplicationSchema = z
@@ -18,7 +18,7 @@ export type CreateApplicationInput = z.infer<typeof createApplicationSchema>;
 
 export const updateStatusSchema = z
   .object({
-    toStatus: z.enum(applicationStatus.enumValues),
+    toStatus: z.enum(APPLICATION_STATUSES),
     note: z.string().trim().max(2_000).optional(),
   })
   .strict();
@@ -40,7 +40,7 @@ export type UpdateApplicationInput = z.infer<typeof updateApplicationSchema>;
 
 export const listQuerySchema = z
   .object({
-    status: z.enum(applicationStatus.enumValues).optional(),
+    status: z.enum(APPLICATION_STATUSES).optional(),
     company: z.string().trim().min(1).max(200).optional(),
     q: z.string().trim().min(1).max(200).optional(),
     from: z.coerce.date().optional(),
@@ -56,4 +56,4 @@ export type ListQuery = z.infer<typeof listQuerySchema>;
 export const generationType = z.enum(["resume", "cover_letter", "answers"]);
 export type GenerationType = z.infer<typeof generationType>;
 
-export const ARTIFACT_TYPES = artifactType.enumValues;
+export { ARTIFACT_TYPES };

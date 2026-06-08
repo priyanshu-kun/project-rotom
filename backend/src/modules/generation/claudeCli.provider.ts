@@ -41,11 +41,23 @@ const MAX_STDOUT_BYTES = 10 * 1024 * 1024; // 10 MB guard against runaway output
  *  - args passed as an array (no shell) — no command injection;
  *  - prompt piped via stdin (not argv) — no length limit, no leakage in `ps`;
  *  - `--tools ""` disables every tool → cannot read files or run commands;
- *  - `--bare` + `--no-session-persistence` → no CLAUDE.md/hooks/keychain, no
- *    session written to disk;
- *  - runs in a throwaway temp cwd → no project context;
- *  - minimal env (PATH/HOME + ANTHROPIC_API_KEY only);
+ *  - `--no-session-persistence` → nothing written to disk;
+ *  - `--strict-mcp-config` (with no `--mcp-config`) → the user's configured MCP
+ *    servers are never loaded;
+ *  - `--system-prompt` fully replaces the default prompt, which also suppresses
+ *    the dynamic CLAUDE.md/auto-memory injection that returns once `--bare` is
+ *    dropped (see buildArgs);
+ *  - runs in a throwaway temp cwd → no project context (no project CLAUDE.md /
+ *    .mcp.json discovered);
+ *  - minimal env (PATH/HOME/CI). Auth resolves to the logged-in `claude`
+ *    subscription token via HOME; ANTHROPIC_API_KEY is forwarded only when
+ *    explicitly configured;
  *  - hard SIGKILL timeout.
+ *
+ * NOTE: `--bare` is deliberately NOT used. On the installed CLI it forces
+ * Anthropic auth to ANTHROPIC_API_KEY/apiKeyHelper and *never* reads the OAuth
+ * subscription login — incompatible with the requirement to use the logged-in
+ * token. The isolation `--bare` would provide is reproduced explicitly above.
  */
 function runClaude(args: string[], stdin: string, timeoutMs: number): Promise<RawRun> {
   return new Promise<RawRun>((resolve, reject) => {
@@ -60,12 +72,16 @@ function runClaude(args: string[], stdin: string, timeoutMs: number): Promise<Ra
         cwd = dir;
         const child = spawn(env.CLAUDE_BIN, args, {
           cwd,
-          // Deliberately minimal environment surface.
+          // Deliberately minimal environment surface. HOME must point at the
+          // real home so the CLI finds the subscription login in
+          // ~/.claude/.credentials.json. ANTHROPIC_API_KEY is forwarded only
+          // when explicitly set, in which case the CLI prefers it over the
+          // subscription token.
           env: {
             PATH: process.env.PATH ?? "",
             HOME: process.env.HOME ?? os.homedir(),
-            ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY,
             CI: "1",
+            ...(env.ANTHROPIC_API_KEY ? { ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY } : {}),
           },
           stdio: ["pipe", "pipe", "pipe"],
         });
@@ -165,8 +181,8 @@ export class ClaudeCliProvider implements GenerationProvider {
   private buildArgs(request: GenerationRequest): string[] {
     const args: string[] = [
       "-p",
-      "--bare",
       "--no-session-persistence",
+      "--strict-mcp-config", // no --mcp-config passed → load zero MCP servers
       "--tools",
       "", // disable all tools: pure text generator
       "--output-format",
@@ -175,7 +191,10 @@ export class ClaudeCliProvider implements GenerationProvider {
       request.model ?? env.CLAUDE_MODEL,
       "--max-budget-usd",
       String(env.CLAUDE_MAX_BUDGET_USD),
-      "--append-system-prompt",
+      // Full replacement (not --append-system-prompt): the contract becomes the
+      // entire system prompt and dynamic CLAUDE.md/auto-memory sections — which
+      // reappear once --bare is gone — are not injected.
+      "--system-prompt",
       request.systemContract,
     ];
     if (request.jsonSchema) {

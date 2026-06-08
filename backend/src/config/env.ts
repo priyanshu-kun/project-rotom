@@ -40,7 +40,15 @@ const envSchema = z.object({
   ),
   DATA_ENCRYPTION_KEY: encryptionKeySchema,
 
-  ANTHROPIC_API_KEY: z.string().min(1, "ANTHROPIC_API_KEY is required for the AI layer"),
+  // Optional override for the AI layer. When unset (the default), generation
+  // authenticates with the already-logged-in `claude` subscription token in
+  // ~/.claude/.credentials.json. When set, it is forwarded to the CLI and the
+  // CLI prefers it over the subscription login. A blank value is treated as
+  // unset so operators can leave the line in place.
+  ANTHROPIC_API_KEY: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().min(1).optional(),
+  ),
   CLAUDE_BIN: z.string().min(1).default("claude"),
   CLAUDE_MODEL: z.string().min(1).default("claude-opus-4-8"),
   CLAUDE_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),

@@ -66,7 +66,8 @@ The profile is the single source of truth. `upsertWithHistory` runs in **one tra
 ### Generation (AI layer) — provider abstraction
 
 `GenerationProvider` (`src/modules/generation/provider.ts`) is the swappable boundary; Phase 0 ships `ClaudeCliProvider`, which spawns the `claude` CLI as a **sandboxed pure-text generator**. Critical hardening to preserve when touching `claudeCli.provider.ts`:
-- args as an array (no shell); prompt via **stdin** (not argv); `--tools ""` disables all tools; `--bare --no-session-persistence`; throwaway temp cwd; minimal env (PATH/HOME/`ANTHROPIC_API_KEY`); hard SIGKILL timeout; 10 MB stdout cap.
+- args as an array (no shell); prompt via **stdin** (not argv); `--tools ""` disables all tools; `--no-session-persistence` + `--strict-mcp-config` (no MCP servers) + `--system-prompt` (full replace, so user CLAUDE.md/auto-memory is not injected); throwaway temp cwd; minimal env (PATH/HOME/CI); hard SIGKILL timeout; 10 MB stdout cap.
+- **Auth uses the logged-in `claude` subscription token** (`~/.claude/.credentials.json`, found via HOME). `ANTHROPIC_API_KEY` is an optional override, forwarded to the subprocess only when set. `--bare` is deliberately **not** used: on the installed CLI it forces API-key/apiKeyHelper auth and never reads the subscription login.
 - A failed run can **exit 0 with `is_error: true`** — that flag, not the exit code alone, is the success signal.
 - Structured output retries **once** only on schema-validation failure, never on timeout/upstream/auth errors.
 

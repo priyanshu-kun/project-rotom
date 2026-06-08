@@ -1,0 +1,14 @@
+{
+  "name": "@rotom/extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Project Rotom Firefox extension — Phase 0 scaffold (manifest + token-authenticated API client, no UI).",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/firefox-webext-browser": "^120.0.4",
+    "typescript": "^5.7.2"
+  }
+}

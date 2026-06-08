@@ -5,13 +5,14 @@ export default defineConfig({
     environment: "node",
     include: ["test/**/*.test.ts", "src/**/*.test.ts"],
     // Provide the env the config module validates at import time. Real values
-    // (DB/Redis/Anthropic) come from the shell for integration tests.
+    // (DB/Redis) come from the shell for integration tests. ANTHROPIC_API_KEY is
+    // intentionally unset: it is now an optional override and the CLI subprocess
+    // is stubbed, so tests cover the default subscription-auth path.
     env: {
       NODE_ENV: "test",
       LOG_LEVEL: "silent",
       // Fixed 32-byte base64 key for deterministic crypto tests.
       DATA_ENCRYPTION_KEY: "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
-      ANTHROPIC_API_KEY: "test-anthropic-key",
       // Isolated test database (created by db-init/01-create-test-db.sql) so
       // the suite never wipes or pollutes the dev `rotom` database.
       DATABASE_URL: "postgresql://rotom:rotom@localhost:5433/rotom_test",

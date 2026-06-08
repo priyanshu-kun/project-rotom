@@ -39,7 +39,7 @@ docker compose up -d
 
 # 2. Backend
 cd backend
-cp .env.example .env          # set DATA_ENCRYPTION_KEY and ANTHROPIC_API_KEY
+cp .env.example .env          # set DATA_ENCRYPTION_KEY (AI layer uses your `claude login`)
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"  # -> DATA_ENCRYPTION_KEY
 npm install
 npm run migrate               # apply SQL migrations
@@ -74,5 +74,5 @@ curl -H "Authorization: Bearer $TOKEN" localhost:8787/api/generation/health
 ## Requirements
 
 - Node.js ≥ 20.10, Docker (for Postgres + Redis)
-- The `claude` CLI on `PATH` and a valid `ANTHROPIC_API_KEY` (only needed for the
-  generation health check)
+- The `claude` CLI on `PATH`, logged in via `claude login` (the AI layer reuses
+  that subscription token). Optionally set `ANTHROPIC_API_KEY` to override it.

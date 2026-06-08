@@ -15,9 +15,13 @@ later phase and gives a verifiable base. (User-selected.)
 behind a swappable `GenerationProvider` interface.
 **Why:** PRD literally specifies the Claude Code CLI as the AI layer. The interface keeps an
 Anthropic-SDK adapter as a drop-in future option without touching callers.
-**Hardening:** args array (no shell), prompt via stdin, `--tools ""`, `--bare`,
-`--no-session-persistence`, throwaway cwd, minimal env, SIGKILL timeout, `is_error`-aware
-parsing, `--json-schema` + Zod post-validation with one retry.
+**Hardening:** args array (no shell), prompt via stdin, `--tools ""`,
+`--no-session-persistence`, `--strict-mcp-config`, `--system-prompt` full-replace, throwaway
+cwd, minimal env, SIGKILL timeout, `is_error`-aware parsing, `--json-schema` + Zod
+post-validation with one retry.
+**Auth:** uses the logged-in `claude` subscription token (`~/.claude/.credentials.json` via
+`HOME`); `ANTHROPIC_API_KEY` is an optional override. `--bare` is avoided because it forces
+API-key/apiKeyHelper auth and never reads the subscription login.
 
 ## D3 — Single-user, local API-token auth (no login UI)
 **Decision:** One user per deployment. Token comes from `API_TOKEN` env, else `.rotom-token`,

@@ -49,8 +49,11 @@ GenerationProvider (interface)              backend/src/modules/generation/provi
 `ClaudeCliProvider` runs `claude` as a **sandboxed, non-interactive, pure-text generator**:
 - args passed as an array (no shell → no injection); **prompt piped via stdin** (not argv);
 - `--tools ""` disables every tool (cannot read files or run commands);
-- `--bare` + `--no-session-persistence` (no CLAUDE.md/hooks/keychain, nothing written to disk);
-- runs in a throwaway temp `cwd`; minimal env (`PATH`/`HOME` + `ANTHROPIC_API_KEY` only);
+- `--no-session-persistence` (nothing written to disk) + `--strict-mcp-config` (no MCP servers
+  loaded) + `--system-prompt` full-replace (suppresses user CLAUDE.md / auto-memory injection);
+- runs in a throwaway temp `cwd`; minimal env (`PATH`/`HOME`/`CI`). Auth uses the logged-in
+  `claude` subscription token (found via `HOME`); `ANTHROPIC_API_KEY` is an optional override.
+  `--bare` is **not** used — it forces API-key auth and never reads the subscription login;
 - hard **SIGKILL timeout**; the JSON envelope's `is_error` flag — not just the exit code — is
   the source of truth for success;
 - structured output via `--json-schema` **and** post-validation against a Zod schema, with one

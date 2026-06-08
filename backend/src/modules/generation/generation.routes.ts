@@ -11,8 +11,8 @@ export const generationRouter: Router = Router();
  * GET /api/generation/health — acceptance probe for the AI layer.
  *
  * Runs a trivial, tool-less generation to verify the claude binary is present,
- * ANTHROPIC_API_KEY authenticates, the JSON envelope parses, and structured
- * output validates.
+ * the subscription login (or ANTHROPIC_API_KEY override) authenticates, the JSON
+ * envelope parses, and structured output validates.
  */
 generationRouter.get(
   "/health",

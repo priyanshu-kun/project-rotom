@@ -87,14 +87,14 @@ lib/httpParams.ts                                          requireParam helper
 ```bash
 docker --context default compose up -d        # Postgres :5433, Redis :6380, creates rotom_test DB
 cd backend
-cp .env.example .env                           # set DATA_ENCRYPTION_KEY + a real ANTHROPIC_API_KEY
+cp .env.example .env                           # set DATA_ENCRYPTION_KEY (AI layer uses `claude login`)
 npm install && npm run migrate && npm run dev  # boots API + in-process generation worker
 npm test                                       # 76 tests (rotom_test DB; CLI + queue mocked)
 ```
 
-With a **real** `ANTHROPIC_API_KEY`: `POST /api/applications {jdText}` → `POST /:id/generate` →
+With a logged-in `claude` subscription (or an `ANTHROPIC_API_KEY` override): `POST /api/applications {jdText}` → `POST /:id/generate` →
 poll `GET /api/generation/jobs/:jobId` → `completed` with artifacts; `GET /api/applications/:id`
-shows them. (Verified live end-to-end; with a placeholder key the job still completes with
+shows them. (Verified live end-to-end; without valid auth the job still completes with
 per-artifact `rejected` results — proving the queue/worker/orchestration path.)
 
 ## Explicitly deferred (NOT built)

@@ -113,18 +113,21 @@ describe("ClaudeCliProvider.generate", () => {
     expect(args).toEqual(
       expect.arrayContaining([
         "-p",
-        "--bare",
         "--no-session-persistence",
+        "--strict-mcp-config",
         "--tools",
         "--output-format",
         "json",
-        "--append-system-prompt",
+        "--system-prompt",
         "contract-text",
         "--json-schema",
       ]),
     );
     // The token right after --tools must be the empty string (disable all tools).
     expect(args[args.indexOf("--tools") + 1]).toBe("");
+    // --bare is intentionally absent: it forces API-key auth and never reads the
+    // logged-in subscription token.
+    expect(args).not.toContain("--bare");
   });
 
   it("parses structured output from the result body and validates with Zod", async () => {

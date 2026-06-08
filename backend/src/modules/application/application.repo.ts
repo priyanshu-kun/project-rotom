@@ -1,19 +1,62 @@
-import { and, asc, count, desc, eq, gte, ilike, lte, or } from "drizzle-orm";
-import { db } from "../../db/client.js";
-import {
-  applications,
-  artifacts,
-  jobDescriptions,
-  statusEvents,
-  type ApplicationRow,
-  type ApplicationStatus,
-  type ArtifactKind,
-  type ArtifactRow,
-  type JobDescriptionRow,
-  type StatusEventRow,
+import { query, withTransaction } from "../../db/client.js";
+import type {
+  ApplicationRow,
+  ApplicationStatus,
+  ArtifactKind,
+  ArtifactRow,
+  JobDescriptionRow,
+  StatusEventRow,
 } from "../../db/schema.js";
 import type { StructuredJd } from "../jd/jd.schema.js";
 import type { ListQuery, UpdateApplicationInput } from "./application.schema.js";
+
+// ── Column lists (snake_case → camelCase aliases matching the row types) ──────
+
+const APPLICATION_COLUMNS = `
+  id,
+  user_id                 AS "userId",
+  company,
+  role,
+  job_url                 AS "jobUrl",
+  status,
+  date_applied            AS "dateApplied",
+  resume_version_id       AS "resumeVersionId",
+  cover_letter_version_id AS "coverLetterVersionId",
+  notes,
+  created_at              AS "createdAt"`;
+
+const JD_COLUMNS = `
+  id,
+  application_id          AS "applicationId",
+  title,
+  company,
+  location,
+  responsibilities,
+  required_skills         AS "requiredSkills",
+  preferred_skills        AS "preferredSkills",
+  qualifications,
+  keywords,
+  questions,
+  form_fields             AS "formFields",
+  extraction_confidence   AS "extractionConfidence",
+  created_at              AS "createdAt"`;
+
+const ARTIFACT_COLUMNS = `
+  id,
+  application_id          AS "applicationId",
+  type,
+  content,
+  version,
+  edited_by_user          AS "editedByUser",
+  generated_at            AS "generatedAt"`;
+
+const STATUS_EVENT_COLUMNS = `
+  id,
+  application_id          AS "applicationId",
+  from_status             AS "fromStatus",
+  to_status               AS "toStatus",
+  note,
+  created_at              AS "createdAt"`;
 
 // ── JD row <-> StructuredJd mapping ──────────────────────────────────────────
 
@@ -33,23 +76,6 @@ function jdRowToStructured(row: JobDescriptionRow): StructuredJd {
   };
 }
 
-function structuredToJdValues(applicationId: string, jd: StructuredJd) {
-  return {
-    applicationId,
-    title: jd.title,
-    company: jd.company,
-    location: jd.location,
-    responsibilities: jd.responsibilities,
-    requiredSkills: jd.requiredSkills,
-    preferredSkills: jd.preferredSkills,
-    qualifications: jd.qualifications,
-    keywords: jd.keywords,
-    questions: jd.questions,
-    formFields: jd.formFields,
-    extractionConfidence: jd.extractionConfidence,
-  };
-}
-
 // ── Create ───────────────────────────────────────────────────────────────────
 
 export interface CreatedApplication {
@@ -66,26 +92,41 @@ export async function createWithJd(
   fields: { company: string; role: string; jobUrl: string | null },
   jd: StructuredJd,
 ): Promise<CreatedApplication> {
-  return db.transaction(async (tx) => {
-    const insertedApp = await tx
-      .insert(applications)
-      .values({
-        userId,
-        company: fields.company,
-        role: fields.role,
-        jobUrl: fields.jobUrl,
-        status: "Saved",
-      })
-      .returning();
-    const application = insertedApp[0]!;
+  return withTransaction(async (client) => {
+    const insertedApp = await client.query<ApplicationRow>(
+      `INSERT INTO applications (user_id, company, role, job_url, status)
+            VALUES ($1, $2, $3, $4, 'Saved')
+         RETURNING ${APPLICATION_COLUMNS}`,
+      [userId, fields.company, fields.role, fields.jobUrl],
+    );
+    const application = insertedApp.rows[0]!;
 
-    await tx.insert(jobDescriptions).values(structuredToJdValues(application.id, jd));
-    await tx.insert(statusEvents).values({
-      applicationId: application.id,
-      fromStatus: null,
-      toStatus: "Saved",
-      note: "Application created",
-    });
+    await client.query(
+      `INSERT INTO job_descriptions
+         (application_id, title, company, location, responsibilities, required_skills,
+          preferred_skills, qualifications, keywords, questions, form_fields, extraction_confidence)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12)`,
+      [
+        application.id,
+        jd.title,
+        jd.company,
+        jd.location,
+        JSON.stringify(jd.responsibilities),
+        JSON.stringify(jd.requiredSkills),
+        JSON.stringify(jd.preferredSkills),
+        JSON.stringify(jd.qualifications),
+        JSON.stringify(jd.keywords),
+        JSON.stringify(jd.questions),
+        JSON.stringify(jd.formFields),
+        jd.extractionConfidence,
+      ],
+    );
+
+    await client.query(
+      `INSERT INTO status_events (application_id, from_status, to_status, note)
+            VALUES ($1, NULL, 'Saved', $2)`,
+      [application.id, "Application created"],
+    );
 
     return { application, jobDescription: jd };
   });
@@ -94,11 +135,10 @@ export async function createWithJd(
 // ── Reads ──────────────────────────────────────────────────────────────────
 
 export async function findById(userId: string, id: string): Promise<ApplicationRow | null> {
-  const rows = await db
-    .select()
-    .from(applications)
-    .where(and(eq(applications.id, id), eq(applications.userId, userId)))
-    .limit(1);
+  const rows = await query<ApplicationRow>(
+    `SELECT ${APPLICATION_COLUMNS} FROM applications WHERE id = $1 AND user_id = $2 LIMIT 1`,
+    [id, userId],
+  );
   return rows[0] ?? null;
 }
 
@@ -115,13 +155,18 @@ export async function getDetail(userId: string, id: string): Promise<Application
     return null;
   }
   const [jdRows, artifactRows, timeline] = await Promise.all([
-    db.select().from(jobDescriptions).where(eq(jobDescriptions.applicationId, id)).limit(1),
-    db.select().from(artifacts).where(eq(artifacts.applicationId, id)).orderBy(asc(artifacts.generatedAt)),
-    db
-      .select()
-      .from(statusEvents)
-      .where(eq(statusEvents.applicationId, id))
-      .orderBy(asc(statusEvents.createdAt)),
+    query<JobDescriptionRow>(
+      `SELECT ${JD_COLUMNS} FROM job_descriptions WHERE application_id = $1 LIMIT 1`,
+      [id],
+    ),
+    query<ArtifactRow>(
+      `SELECT ${ARTIFACT_COLUMNS} FROM artifacts WHERE application_id = $1 ORDER BY generated_at ASC`,
+      [id],
+    ),
+    query<StatusEventRow>(
+      `SELECT ${STATUS_EVENT_COLUMNS} FROM status_events WHERE application_id = $1 ORDER BY created_at ASC`,
+      [id],
+    ),
   ]);
   return {
     application,
@@ -132,11 +177,10 @@ export async function getDetail(userId: string, id: string): Promise<Application
 }
 
 export async function getStructuredJd(applicationId: string): Promise<StructuredJd | null> {
-  const rows = await db
-    .select()
-    .from(jobDescriptions)
-    .where(eq(jobDescriptions.applicationId, applicationId))
-    .limit(1);
+  const rows = await query<JobDescriptionRow>(
+    `SELECT ${JD_COLUMNS} FROM job_descriptions WHERE application_id = $1 LIMIT 1`,
+    [applicationId],
+  );
   return rows[0] ? jdRowToStructured(rows[0]) : null;
 }
 
@@ -144,34 +188,42 @@ export async function list(
   userId: string,
   filters: ListQuery,
 ): Promise<{ items: ApplicationRow[]; total: number }> {
-  const conditions = [eq(applications.userId, userId)];
+  const conditions: string[] = ["user_id = $1"];
+  const params: unknown[] = [userId];
+
   if (filters.status) {
-    conditions.push(eq(applications.status, filters.status));
+    params.push(filters.status);
+    conditions.push(`status = $${params.length}`);
   }
   if (filters.company) {
-    conditions.push(ilike(applications.company, `%${filters.company}%`));
+    params.push(`%${filters.company}%`);
+    conditions.push(`company ILIKE $${params.length}`);
   }
   if (filters.q) {
-    const term = `%${filters.q}%`;
-    conditions.push(or(ilike(applications.company, term), ilike(applications.role, term))!);
+    params.push(`%${filters.q}%`);
+    conditions.push(`(company ILIKE $${params.length} OR role ILIKE $${params.length})`);
   }
   if (filters.from) {
-    conditions.push(gte(applications.createdAt, filters.from));
+    params.push(filters.from);
+    conditions.push(`created_at >= $${params.length}`);
   }
   if (filters.to) {
-    conditions.push(lte(applications.createdAt, filters.to));
+    params.push(filters.to);
+    conditions.push(`created_at <= $${params.length}`);
   }
-  const where = and(...conditions);
+
+  const where = `WHERE ${conditions.join(" AND ")}`;
+  const limitIdx = params.length + 1;
+  const offsetIdx = params.length + 2;
 
   const [items, totalRows] = await Promise.all([
-    db
-      .select()
-      .from(applications)
-      .where(where)
-      .orderBy(desc(applications.createdAt))
-      .limit(filters.limit)
-      .offset(filters.offset),
-    db.select({ value: count() }).from(applications).where(where),
+    query<ApplicationRow>(
+      `SELECT ${APPLICATION_COLUMNS} FROM applications ${where}
+         ORDER BY created_at DESC
+         LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      [...params, filters.limit, filters.offset],
+    ),
+    query<{ value: number }>(`SELECT COUNT(*)::int AS value FROM applications ${where}`, params),
   ]);
   return { items, total: totalRows[0]?.value ?? 0 };
 }
@@ -190,20 +242,21 @@ export async function applyStatusTransition(
   note: string | undefined,
   stampDateApplied: boolean,
 ): Promise<StatusUpdateResult> {
-  return db.transaction(async (tx) => {
-    const updated = await tx
-      .update(applications)
-      .set({
-        status: toStatus,
-        ...(stampDateApplied ? { dateApplied: new Date() } : {}),
-      })
-      .where(eq(applications.id, id))
-      .returning();
-    const insertedEvent = await tx
-      .insert(statusEvents)
-      .values({ applicationId: id, fromStatus, toStatus, note: note ?? null })
-      .returning();
-    return { application: updated[0]!, event: insertedEvent[0]! };
+  return withTransaction(async (client) => {
+    const updated = await client.query<ApplicationRow>(
+      `UPDATE applications
+          SET status = $1${stampDateApplied ? ", date_applied = now()" : ""}
+        WHERE id = $2
+      RETURNING ${APPLICATION_COLUMNS}`,
+      [toStatus, id],
+    );
+    const insertedEvent = await client.query<StatusEventRow>(
+      `INSERT INTO status_events (application_id, from_status, to_status, note)
+            VALUES ($1, $2, $3, $4)
+         RETURNING ${STATUS_EVENT_COLUMNS}`,
+      [id, fromStatus, toStatus, note ?? null],
+    );
+    return { application: updated.rows[0]!, event: insertedEvent.rows[0]! };
   });
 }
 
@@ -212,31 +265,35 @@ export async function updateFields(
   id: string,
   fields: UpdateApplicationInput,
 ): Promise<ApplicationRow | null> {
-  // Build a clean set object with only defined keys (drizzle's set() rejects
-  // explicit undefined under exactOptionalPropertyTypes).
-  const updates: Partial<Pick<ApplicationRow, "company" | "role" | "notes">> = {};
-  if (fields.company !== undefined) {
-    updates.company = fields.company;
+  const setClauses: string[] = [];
+  const params: unknown[] = [];
+  for (const column of ["company", "role", "notes"] as const) {
+    const value = fields[column];
+    if (value !== undefined) {
+      params.push(value);
+      setClauses.push(`${column} = $${params.length}`);
+    }
   }
-  if (fields.role !== undefined) {
-    updates.role = fields.role;
+  // Nothing to change — return the current row (ownership-scoped) unchanged.
+  if (setClauses.length === 0) {
+    return findById(userId, id);
   }
-  if (fields.notes !== undefined) {
-    updates.notes = fields.notes;
-  }
-  const rows = await db
-    .update(applications)
-    .set(updates)
-    .where(and(eq(applications.id, id), eq(applications.userId, userId)))
-    .returning();
+
+  params.push(id, userId);
+  const rows = await query<ApplicationRow>(
+    `UPDATE applications SET ${setClauses.join(", ")}
+      WHERE id = $${params.length - 1} AND user_id = $${params.length}
+    RETURNING ${APPLICATION_COLUMNS}`,
+    params,
+  );
   return rows[0] ?? null;
 }
 
 export async function deleteById(userId: string, id: string): Promise<boolean> {
-  const rows = await db
-    .delete(applications)
-    .where(and(eq(applications.id, id), eq(applications.userId, userId)))
-    .returning({ id: applications.id });
+  const rows = await query<{ id: string }>(
+    `DELETE FROM applications WHERE id = $1 AND user_id = $2 RETURNING id`,
+    [id, userId],
+  );
   return rows.length > 0;
 }
 
@@ -246,12 +303,13 @@ export async function latestArtifactVersion(
   applicationId: string,
   type: ArtifactKind,
 ): Promise<number> {
-  const rows = await db
-    .select({ version: artifacts.version })
-    .from(artifacts)
-    .where(and(eq(artifacts.applicationId, applicationId), eq(artifacts.type, type)))
-    .orderBy(desc(artifacts.version))
-    .limit(1);
+  const rows = await query<{ version: number }>(
+    `SELECT version FROM artifacts
+      WHERE application_id = $1 AND type = $2
+      ORDER BY version DESC
+      LIMIT 1`,
+    [applicationId, type],
+  );
   return rows[0]?.version ?? 0;
 }
 
@@ -262,16 +320,12 @@ export async function insertArtifactVersion(input: {
   version: number;
   editedByUser: boolean;
 }): Promise<ArtifactRow> {
-  const rows = await db
-    .insert(artifacts)
-    .values({
-      applicationId: input.applicationId,
-      type: input.type,
-      content: input.content,
-      version: input.version,
-      editedByUser: input.editedByUser,
-    })
-    .returning();
+  const rows = await query<ArtifactRow>(
+    `INSERT INTO artifacts (application_id, type, content, version, edited_by_user)
+          VALUES ($1, $2, $3::jsonb, $4, $5)
+       RETURNING ${ARTIFACT_COLUMNS}`,
+    [input.applicationId, input.type, JSON.stringify(input.content), input.version, input.editedByUser],
+  );
   return rows[0]!;
 }
 
@@ -282,15 +336,15 @@ export async function setApplicationPointer(
   artifactId: string,
 ): Promise<void> {
   if (type === "resume") {
-    await db
-      .update(applications)
-      .set({ resumeVersionId: artifactId })
-      .where(eq(applications.id, applicationId));
+    await query(`UPDATE applications SET resume_version_id = $1 WHERE id = $2`, [
+      artifactId,
+      applicationId,
+    ]);
   } else if (type === "cover_letter") {
-    await db
-      .update(applications)
-      .set({ coverLetterVersionId: artifactId })
-      .where(eq(applications.id, applicationId));
+    await query(`UPDATE applications SET cover_letter_version_id = $1 WHERE id = $2`, [
+      artifactId,
+      applicationId,
+    ]);
   }
   // 'answer' artifacts have no dedicated pointer column.
 }
@@ -299,11 +353,10 @@ export async function listArtifacts(
   applicationId: string,
   options: { all: boolean },
 ): Promise<ArtifactRow[]> {
-  const rows = await db
-    .select()
-    .from(artifacts)
-    .where(eq(artifacts.applicationId, applicationId))
-    .orderBy(desc(artifacts.version));
+  const rows = await query<ArtifactRow>(
+    `SELECT ${ARTIFACT_COLUMNS} FROM artifacts WHERE application_id = $1 ORDER BY version DESC`,
+    [applicationId],
+  );
   if (options.all) {
     return rows;
   }
@@ -323,15 +376,25 @@ export async function findArtifactForUser(
   userId: string,
   artifactId: string,
 ): Promise<{ artifact: ArtifactRow; ownerId: string } | null> {
-  const rows = await db
-    .select({ artifact: artifacts, ownerId: applications.userId })
-    .from(artifacts)
-    .innerJoin(applications, eq(artifacts.applicationId, applications.id))
-    .where(eq(artifacts.id, artifactId))
-    .limit(1);
+  const rows = await query<ArtifactRow & { ownerId: string }>(
+    `SELECT art.id,
+            art.application_id AS "applicationId",
+            art.type,
+            art.content,
+            art.version,
+            art.edited_by_user AS "editedByUser",
+            art.generated_at   AS "generatedAt",
+            app.user_id        AS "ownerId"
+       FROM artifacts art
+       JOIN applications app ON art.application_id = app.id
+      WHERE art.id = $1
+      LIMIT 1`,
+    [artifactId],
+  );
   const row = rows[0];
   if (!row || row.ownerId !== userId) {
     return null;
   }
-  return { artifact: row.artifact, ownerId: row.ownerId };
+  const { ownerId, ...artifact } = row;
+  return { artifact, ownerId };
 }

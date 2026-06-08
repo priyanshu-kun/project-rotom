@@ -21,8 +21,7 @@ Two independent npm packages, no root workspace — install/run each separately:
 docker compose up -d              # from repo root: start Postgres + Redis first
 npm run dev                       # tsx watch; prints the API token once on first boot
 npm run build && npm start        # compile to dist/ then run with node
-npm run migrate                   # apply SQL migrations (tsx src/db/migrate.ts)
-npm run migrate:generate          # diff schema.ts → new SQL migration in drizzle/
+npm run migrate                   # apply pending SQL migrations from migrations/ (tsx src/db/migrate.ts)
 npm run db:seed                   # idempotent auth bootstrap (creates user + token)
 npm run lint                      # eslint
 npm run typecheck                 # tsc --noEmit
@@ -47,7 +46,7 @@ Integration tests (`profile.integration.test.ts`) hit a **real** Postgres at the
 Each feature is a module under `src/modules/<name>/` split into **routes → service → repo**:
 - **routes** — HTTP only: parse with Zod `.safeParse`, throw `ValidationError` on failure, call the service. Read the user via `userIdOf(req)` (populated by `requireAuth`).
 - **service** — business logic; **re-validates input** with `.parse` so it's safe to call from non-HTTP contexts.
-- **repo** — Drizzle queries; the boundary where encryption/decryption happens.
+- **repo** — raw parameterized SQL via the `pg` driver (`query`/`withTransaction` from `src/db/client.ts`); the boundary where encryption/decryption happens.
 
 ### Auth — single-user API token
 
@@ -55,9 +54,9 @@ No login UI. `bootstrapAuth()` resolves a token (priority: `API_TOKEN` env → e
 
 ### Data model & the document pattern
 
-`src/db/schema.ts` defines the **full** PRD data model in Drizzle, but Phase 0 only wires endpoints for `profiles`. Nested sub-entities (work experience, education, JD fields, artifact content) live in **`jsonb` columns validated by Zod at the boundary** — a deliberate document model, not normalized tables. Don't normalize these into new tables for a single-user product without reason.
+There is **no ORM** — the data layer is raw `pg` + hand-written SQL. `src/db/schema.ts` is the **TypeScript-side** source of truth: enum value lists (`APPLICATION_STATUSES`, `ARTIFACT_TYPES`) and plain row interfaces (`ProfileRow`, `ApplicationRow`, …). The **SQL** source of truth is `migrations/*.sql`; the two are kept in sync by hand. Repos select with snake_case→camelCase column aliases so row keys match the interfaces, and bind `jsonb` values as `JSON.stringify(value)` with an explicit `$n::jsonb` cast (node-pg would otherwise format JS arrays as Postgres array literals). The full PRD data model exists, but Phase 0 only wires endpoints for `profiles`. Nested sub-entities (work experience, education, JD fields, artifact content) live in **`jsonb` columns validated by Zod at the boundary** — a deliberate document model, not normalized tables. Don't normalize these into new tables for a single-user product without reason.
 
-Migrations live in `drizzle/` and are **SQL files generated from `schema.ts`** — edit the schema then run `migrate:generate`, never hand-write migrations.
+Migrations are **hand-written numbered SQL files in `migrations/`**, applied by a small custom runner (`src/db/migrate.ts`) that tracks applied files in a `_migrations` table and runs each new file in a transaction. To change the schema, add the next `NNNN_*.sql` file and run `npm run migrate` — keep `schema.ts` row types in sync.
 
 ### Profile — versioning & encryption
 

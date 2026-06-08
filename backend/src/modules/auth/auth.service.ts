@@ -1,8 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, chmodSync } from "node:fs";
 import path from "node:path";
-import { eq } from "drizzle-orm";
-import { db } from "../../db/client.js";
-import { users, type UserRow } from "../../db/schema.js";
+import { query } from "../../db/client.js";
+import type { UserRow } from "../../db/schema.js";
 import { env } from "../../config/env.js";
 import { generateApiToken, safeHexEqual, sha256Hex } from "../../lib/crypto.js";
 import { logger } from "../../lib/logger.js";
@@ -52,21 +51,27 @@ export async function bootstrapAuth(): Promise<{ user: UserRow; source: TokenSou
   const { token, source } = resolveApiToken();
   const tokenHash = sha256Hex(token);
 
-  const existing = await db.select().from(users).limit(1);
+  const existing = await query<UserRow>(
+    `SELECT id, token_hash AS "tokenHash", created_at AS "createdAt" FROM users LIMIT 1`,
+  );
   let user: UserRow;
 
   if (existing.length === 0) {
-    const inserted = await db.insert(users).values({ tokenHash }).returning();
+    const inserted = await query<UserRow>(
+      `INSERT INTO users (token_hash) VALUES ($1)
+         RETURNING id, token_hash AS "tokenHash", created_at AS "createdAt"`,
+      [tokenHash],
+    );
     user = inserted[0]!;
   } else {
     user = existing[0]!;
     // Keep the stored hash in sync if the operator rotated API_TOKEN.
     if (user.tokenHash !== tokenHash) {
-      const updated = await db
-        .update(users)
-        .set({ tokenHash })
-        .where(eq(users.id, user.id))
-        .returning();
+      const updated = await query<UserRow>(
+        `UPDATE users SET token_hash = $1 WHERE id = $2
+           RETURNING id, token_hash AS "tokenHash", created_at AS "createdAt"`,
+        [tokenHash, user.id],
+      );
       user = updated[0]!;
     }
   }
@@ -97,7 +102,9 @@ export async function verifyToken(presentedToken: string): Promise<{ userId: str
     return null;
   }
   if (!cachedUser) {
-    const rows = await db.select().from(users).limit(1);
+    const rows = await query<Pick<UserRow, "id" | "tokenHash">>(
+      `SELECT id, token_hash AS "tokenHash" FROM users LIMIT 1`,
+    );
     if (rows.length === 0) {
       return null;
     }

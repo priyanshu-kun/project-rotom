@@ -1,4 +1,4 @@
-import { applicationStatus, type ApplicationStatus } from "../../db/schema.js";
+import { APPLICATION_STATUSES, type ApplicationStatus } from "../../db/schema.js";
 import { ConflictError } from "../../lib/errors.js";
 
 /**
@@ -33,7 +33,7 @@ const TRANSITIONS: Readonly<Record<ApplicationStatus, readonly ApplicationStatus
   Withdrawn: [],
 };
 
-export const ALL_STATUSES: readonly ApplicationStatus[] = applicationStatus.enumValues;
+export const ALL_STATUSES: readonly ApplicationStatus[] = APPLICATION_STATUSES;
 
 export function canTransition(from: ApplicationStatus, to: ApplicationStatus): boolean {
   if (from === to) {

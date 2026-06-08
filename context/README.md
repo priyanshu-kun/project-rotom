@@ -17,7 +17,7 @@ you don't have to reverse-engineer intent from code.
 | [`requirements.md`](./requirements.md) | The functional requirement IDs (PR/JD/GEN/FORM/TRK/LC) with priorities, for traceability. |
 | [`architecture.md`](./architecture.md) | Components, layer responsibilities, the Claude CLI boundary, the data model, and the chosen tech stack with rationale. |
 | [`current-state.md`](./current-state.md) | **What is actually built today** — endpoints with request/response shapes, file map, verification status, and what is stubbed/deferred. |
-| [`decisions.md`](./decisions.md) | Locked decisions (ADR-lite): scope, CLI subprocess, token auth, two-project layout, ports, Drizzle, encryption. |
+| [`decisions.md`](./decisions.md) | Locked decisions (ADR-lite): scope, CLI subprocess, token auth, two-project layout, ports, raw SQL (no ORM), encryption. |
 | [`roadmap.md`](./roadmap.md) | Phasing and the concrete next endpoints to build, with what each depends on. |
 
 ## The one-paragraph summary

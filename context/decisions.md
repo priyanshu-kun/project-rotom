@@ -35,11 +35,17 @@ contract (Zod schemas + inferred types) lives in the backend.
 **Why:** User-selected. Keeps the extension's toolchain independent; acceptable duplication of a
 few client types for a single-user product.
 
-## D5 — Drizzle ORM with jsonb document columns for the profile
-**Decision:** Typed Drizzle schema as the SQL source of truth; nested profile sub-entities
-(experience, education, …) stored as Zod-validated `jsonb`, not normalized tables.
-**Why:** Type-safety + real migrations; the profile is naturally a document and a single-user
-product doesn't need relational decomposition yet.
+## D5 — Raw `pg` + hand-written SQL with jsonb document columns for the profile
+**Decision:** No ORM. Data access is raw parameterized SQL through `node-postgres`
+(`query`/`withTransaction` in `src/db/client.ts`); `src/db/schema.ts` holds plain row
+interfaces + enum value lists (the TS-side source of truth) while `migrations/*.sql` is the
+SQL source of truth, kept in sync by hand. Migrations are numbered SQL files applied by a
+small custom runner (`src/db/migrate.ts`) tracked in a `_migrations` table. Nested profile
+sub-entities (experience, education, …) stay Zod-validated `jsonb`, not normalized tables.
+**Why:** The single-user, document-shaped model doesn't need an ORM or relational
+decomposition; raw SQL keeps the data layer explicit and dependency-free, with full control
+over queries. Repos alias snake_case→camelCase in SELECTs and bind jsonb as
+`JSON.stringify(v)::jsonb`. *(Supersedes the original Drizzle ORM decision.)*
 
 ## D6 — Encrypt PII at rest at the application layer
 **Decision:** AES-256-GCM encrypt the `personal` block before persistence (live row + history
